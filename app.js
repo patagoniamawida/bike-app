@@ -1,39 +1,71 @@
-// BIKE v1.1 - velocidad robusta por distancia/tiempo (iPhone friendly)
-
-let isCalibrating = false;
-let calibrationRoute = [];
-let currentTrack = JSON.parse(localStorage.getItem("currentTrack") || "null");
+// BIKE v2.1 — START/FIN por zonas GPS + Calibración de ruta (DH serio base)
+// - Auto start al entrar a START
+// - Auto stop al entrar a FIN
+// - Modo CALIBRAR: graba la ruta (puntos GPS) entre START y FIN
+// - PB guardado en localStorage
+// - Velocidad solo informativa (calculada por distancia/tiempo)
 
 let watchId = null;
+
 let armed = false;
 let running = false;
 let startTime = null;
 let timerInterval = null;
 
+let isCalibrating = false;
+let calibrationRoute = []; // puntos {lat, lon, t, acc?}
+
 let bestTime = localStorage.getItem("pb");
 bestTime = bestTime ? parseFloat(bestTime) : null;
 
+// Zonas START/FIN guardadas
+let startZone = JSON.parse(localStorage.getItem("startZone") || "null");
+let finishZone = JSON.parse(localStorage.getItem("finishZone") || "null");
+
+// Track calibrado guardado (una pista simple por ahora)
+let currentTrack = JSON.parse(localStorage.getItem("currentTrack") || "null");
+
+// Ajustes (bosque: sube a 25–35 si lo necesitas)
+const ZONE_RADIUS_M = 20;
+
+// Para evitar disparo doble al pasar por START
+let startCrossedLock = false;
+
+// ---------------- DOM ----------------
 const speedEl = document.getElementById("speed");
 const timeEl = document.getElementById("time");
 const pbEl = document.getElementById("pb");
 const armBtn = document.getElementById("armBtn");
 const calibrateBtn = document.getElementById("calibrateBtn");
 
-pbEl.textContent = bestTime ? bestTime.toFixed(2) : "--";
+// (opcionales: si existen en tu HTML, los usará)
+const setStartBtn = document.getElementById("setStartBtn");
+const setFinishBtn = document.getElementById("setFinishBtn");
+const statusEl = document.getElementById("status");
+const zonesEl = document.getElementById("zones");
 
-armBtn.addEventListener("click", () => {
-  armed = !armed;
-  armBtn.textContent = armed ? "DESARMAR" : "ARMAR";
+function setStatus(txt) {
+  if (statusEl) statusEl.textContent = txt;
+}
 
-  // Si desarmas, detén el timer (por seguridad)
-  if (!armed && running) stopTimer();
-});
+function updateZonesText() {
+  if (!zonesEl) return;
+  const s = startZone ? `${startZone.lat.toFixed(5)}, ${startZone.lon.toFixed(5)}` : "--";
+  const f = finishZone ? `${finishZone.lat.toFixed(5)}, ${finishZone.lon.toFixed(5)}` : "--";
+  zonesEl.textContent = `START: ${s} | FIN: ${f}`;
+}
 
-// --- util: Haversine para distancia en metros ---
+if (pbEl) pbEl.textContent = bestTime ? bestTime.toFixed(2) : "--";
+if (timeEl) timeEl.textContent = "0.00";
+if (speedEl) speedEl.textContent = "—";
+setStatus("No armado");
+updateZonesText();
+
+// ---------------- Utils ----------------
 function toRad(x) { return (x * Math.PI) / 180; }
 
 function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // metros
+  const R = 6371000;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -43,99 +75,195 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// --- Timer ---
+// ---------------- Timer ----------------
 function startTimer() {
   running = true;
   startTime = Date.now();
+  if (timeEl) timeEl.textContent = "0.00";
+  setStatus(isCalibrating ? "Calibrando (corriendo)..." : "Corriendo...");
+
   timerInterval = setInterval(() => {
     const elapsed = (Date.now() - startTime) / 1000;
-    timeEl.textContent = elapsed.toFixed(2);
+    if (timeEl) timeEl.textContent = elapsed.toFixed(2);
   }, 50);
 }
 
-function stopTimer() {
+function stopTimer(reason = "Terminado") {
   running = false;
   clearInterval(timerInterval);
 
-  const finalTime = parseFloat(timeEl.textContent);
-  if (!bestTime || finalTime < bestTime) {
+  const finalTime = timeEl ? parseFloat(timeEl.textContent) : 0;
+
+  // Actualiza PB
+  if (!bestTime || (finalTime > 0 && finalTime < bestTime)) {
     bestTime = finalTime;
     localStorage.setItem("pb", String(bestTime));
-    pbEl.textContent = bestTime.toFixed(2);
+    if (pbEl) pbEl.textContent = bestTime.toFixed(2);
+  }
+
+  setStatus(reason);
+
+  // Si estaba calibrando, guarda ruta calibrada
+  if (isCalibrating) {
+    if (calibrationRoute.length >= 10 && startZone && finishZone) {
+      // distancia estimada de la ruta (sumatoria entre puntos)
+      let dist = 0;
+      for (let i = 1; i < calibrationRoute.length; i++) {
+        const a = calibrationRoute[i - 1];
+        const b = calibrationRoute[i];
+        dist += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+      }
+
+      currentTrack = {
+        start: startZone,
+        finish: finishZone,
+        route: calibrationRoute,
+        distance_m: Math.round(dist),
+        time_s: finalTime
+      };
+
+      localStorage.setItem("currentTrack", JSON.stringify(currentTrack));
+      alert("Ruta calibrada y guardada ✅");
+    } else {
+      alert("Calibración incompleta (muy pocos puntos). Intenta nuevamente.");
+    }
+
+    // salir de modo calibración
+    isCalibrating = false;
+    calibrationRoute = [];
+    if (calibrateBtn) calibrateBtn.textContent = "CALIBRAR PISTA";
   }
 }
 
-// --- Velocidad robusta (promedio suavizado) ---
+// ---------------- Lógica de botones ----------------
+if (armBtn) {
+  armBtn.addEventListener("click", () => {
+    // Para DH serio: exige START y FIN
+    if (!startZone || !finishZone) {
+      alert("Primero define START y FIN.");
+      return;
+    }
+
+    armed = !armed;
+
+    if (armed) {
+      startCrossedLock = false;
+      armBtn.textContent = "DESARMAR";
+      setStatus(isCalibrating ? "Calibrar: cruza START" : "Armado: esperando START");
+    } else {
+      armBtn.textContent = "ARMAR";
+      setStatus("No armado");
+      if (running) stopTimer("Detenido (desarmado)");
+    }
+  });
+}
+
+if (calibrateBtn) {
+  calibrateBtn.addEventListener("click", () => {
+    if (!startZone || !finishZone) {
+      alert("Define START y FIN primero.");
+      return;
+    }
+
+    isCalibrating = !isCalibrating;
+
+    if (isCalibrating) {
+      calibrationRoute = [];
+      setStatus("Calibrando: arma y cruza START");
+      calibrateBtn.textContent = "DETENER CALIBRACIÓN";
+    } else {
+      // si se apaga calibración en medio, solo desactiva
+      calibrateBtn.textContent = "CALIBRAR PISTA";
+      setStatus(armed ? "Armado: esperando START" : "No armado");
+    }
+  });
+}
+
+// Opcionales: SET START / SET FIN (si agregas botones en HTML)
 let lastPos = null;
+
+if (setStartBtn) {
+  setStartBtn.addEventListener("click", () => {
+    if (!lastPos) { alert("Aún no hay GPS. Espera unos segundos."); return; }
+    startZone = { lat: lastPos.lat, lon: lastPos.lon };
+    localStorage.setItem("startZone", JSON.stringify(startZone));
+    updateZonesText();
+    alert("START guardado ✅");
+  });
+}
+
+if (setFinishBtn) {
+  setFinishBtn.addEventListener("click", () => {
+    if (!lastPos) { alert("Aún no hay GPS. Espera unos segundos."); return; }
+    finishZone = { lat: lastPos.lat, lon: lastPos.lon };
+    localStorage.setItem("finishZone", JSON.stringify(finishZone));
+    updateZonesText();
+    alert("FIN guardado ✅");
+  });
+}
+
+// ---------------- GPS / Velocidad informativa ----------------
 let lastT = null;
 let speedKmhSmoothed = 0;
-
-const START_KMH = 6.0; // umbral de inicio (ajustable)
-const STOP_KMH = 1.5;  // umbral de parada (ajustable)
-const MIN_DT = 0.7;    // mínimo segundos entre muestras útiles
+const MIN_DT = 0.7; // segundos mínimos entre muestras útiles
 
 function onPosition(position) {
   const { latitude, longitude, accuracy } = position.coords;
   const t = position.timestamp ? position.timestamp : Date.now();
 
-  // Filtra lecturas muy malas (bosque puede dar alta accuracy)
-  // Igual lo dejamos flexible: solo avisamos internamente si es enorme.
-  // Si quieres, después mostramos warning en UI.
-  const accOk = (accuracy == null) ? true : accuracy < 80;
+  // lastPos para botones/uso
+  const prevPos = lastPos;
+  lastPos = { lat: latitude, lon: longitude };
 
-  let speedKmh = null;
-
-  // Intentar speed nativa si viene
-  if (position.coords.speed != null && !Number.isNaN(position.coords.speed)) {
-    speedKmh = position.coords.speed * 3.6;
-  }
-
-  // Si no hay speed nativa, la calculamos
-  if (speedKmh == null && lastPos && lastT) {
+  // Velocidad informativa por distancia/tiempo
+  if (prevPos && lastT) {
     const dt = (t - lastT) / 1000;
     if (dt >= MIN_DT) {
-      const d = haversineMeters(lastPos.lat, lastPos.lon, latitude, longitude);
-      speedKmh = (d / dt) * 3.6;
+      const d = haversineMeters(prevPos.lat, prevPos.lon, latitude, longitude);
+      const sp = (d / dt) * 3.6;
+      speedKmhSmoothed = 0.7 * speedKmhSmoothed + 0.3 * sp;
+      if (speedEl) speedEl.textContent = Math.max(0, speedKmhSmoothed).toFixed(1) + " km/h";
     }
   }
-
-  // Actualiza last
-  lastPos = { lat: latitude, lon: longitude };
   lastT = t;
 
-  // Si aún no hay speed, mostramos lo que tengamos
-  if (speedKmh == null) {
-    speedEl.textContent = "—";
-    return;
-  }
+  // Si no hay zonas, no hacemos lógica de cronometraje
+  if (!startZone || !finishZone) return;
 
-  // Suavizado simple para evitar saltos
-  speedKmhSmoothed = 0.7 * speedKmhSmoothed + 0.3 * speedKmh;
-  const shown = Math.max(0, speedKmhSmoothed);
+  const distToStart = haversineMeters(latitude, longitude, startZone.lat, startZone.lon);
+  const distToFinish = haversineMeters(latitude, longitude, finishZone.lat, finishZone.lon);
 
-  speedEl.textContent = shown.toFixed(1) + " km/h";
-
-  // Lógica de arranque/parada
+  // Auto start al entrar a START
   if (armed && !running) {
-    // Para evitar que arranque con ruido, pedimos umbral y opcionalmente buena accuracy
-    if (shown >= START_KMH && accOk) startTimer();
-    // Si accuracy no es buena, igual podría arrancar; si quieres, quito accOk.
-    if (shown >= START_KMH && !accOk) startTimer();
+    if (!startCrossedLock && distToStart <= ZONE_RADIUS_M) {
+      startCrossedLock = true;
+      startTimer();
+    }
   }
 
-  if (running) {
-    // Parada cuando baja de umbral por un ratito
-    if (shown <= STOP_KMH) {
-      stopTimer();
-    }
+  // Grabación de ruta durante calibración mientras corre
+  if (isCalibrating && running) {
+    calibrationRoute.push({
+      lat: latitude,
+      lon: longitude,
+      t: t,
+      acc: accuracy
+    });
+  }
+
+  // Auto stop al entrar a FIN
+  if (running && distToFinish <= ZONE_RADIUS_M) {
+    stopTimer("Terminado (auto stop en FIN)");
+    armed = false;
+    if (armBtn) armBtn.textContent = "ARMAR";
   }
 }
 
 function onError(err) {
   console.warn("GPS error:", err);
+  setStatus("Error GPS");
 }
 
-// Iniciar tracking
 if ("geolocation" in navigator) {
   watchId = navigator.geolocation.watchPosition(onPosition, onError, {
     enableHighAccuracy: true,
@@ -147,11 +275,6 @@ if ("geolocation" in navigator) {
 // Service Worker
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js");
-}
-
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js");
-
 }
 
 
