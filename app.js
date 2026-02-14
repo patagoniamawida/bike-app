@@ -65,8 +65,8 @@ let lastPos = null;
 let lastT = null;
 let speedKmhSmoothed = 0;
 
-const START_KMH = 1.0; // umbral de inicio (ajustable)
-const STOP_KMH = 0.5;  // umbral de parada (ajustable)
+const START_KMH = 6.0; // umbral de inicio (ajustable)
+const STOP_KMH = 1.5;  // umbral de parada (ajustable)
 const MIN_DT = 0.7;    // mínimo segundos entre muestras útiles
 
 function onPosition(position) {
@@ -148,4 +148,5 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js");
 
 }
+
 
