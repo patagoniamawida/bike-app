@@ -1,0 +1,9 @@
+{
+  "name": "BIKE App",
+  "short_name": "BIKE",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#00ff88",
+  "icons": []
+}
