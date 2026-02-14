@@ -17,6 +17,7 @@ const speedEl = document.getElementById("speed");
 const timeEl = document.getElementById("time");
 const pbEl = document.getElementById("pb");
 const armBtn = document.getElementById("armBtn");
+const calibrateBtn = document.getElementById("calibrateBtn");
 
 pbEl.textContent = bestTime ? bestTime.toFixed(2) : "--";
 
@@ -152,6 +153,7 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js");
 
 }
+
 
 
 
