@@ -1,5 +1,9 @@
 // BIKE v1.1 - velocidad robusta por distancia/tiempo (iPhone friendly)
 
+let isCalibrating = false;
+let calibrationRoute = [];
+let currentTrack = JSON.parse(localStorage.getItem("currentTrack") || "null");
+
 let watchId = null;
 let armed = false;
 let running = false;
@@ -148,5 +152,6 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("service-worker.js");
 
 }
+
 
 
