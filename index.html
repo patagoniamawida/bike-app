@@ -10,27 +10,47 @@
 <body>
   <div class="container">
     <h1>BIKE</h1>
-    
+
+    <!-- Estado + zonas -->
     <div class="card">
-      <p>Velocidad</p>
-      <h2 id="speed">0 km/h</h2>
+      <p>Estado</p>
+      <h2 id="status">No armado</h2>
+      <p id="zones">START: -- | FIN: --</p>
+      <p style="opacity:.7; margin-top:10px;">
+        Radio zonas: 20 m (ajustable en app.js)
+      </p>
     </div>
 
+    <!-- Velocidad (informativa) -->
+    <div class="card">
+      <p>Velocidad (informativa)</p>
+      <h2 id="speed">—</h2>
+    </div>
+
+    <!-- Tiempo -->
     <div class="card">
       <p>Tiempo</p>
       <h2 id="time">0.00</h2>
     </div>
 
+    <!-- PB -->
     <div class="card">
       <p>PB</p>
       <h2 id="pb">--</h2>
     </div>
 
-   <button id="armBtn">ARMAR</button>
-   <button id="calibrateBtn" class="secondary">CALIBRAR PISTA</button>
-   </div>
+    <!-- Botones de configuración START/FIN -->
+    <div class="row">
+      <button id="setStartBtn" class="secondary">SET START AQUÍ</button>
+      <button id="setFinishBtn" class="secondary">SET FIN AQUÍ</button>
+    </div>
+
+    <!-- Control principal -->
+    <button id="armBtn">ARMAR</button>
+    <button id="calibrateBtn" class="secondary">CALIBRAR PISTA</button>
+  </div>
 
   <script src="app.js"></script>
 </body>
-
 </html>
+
